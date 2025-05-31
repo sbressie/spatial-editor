@@ -3,17 +3,13 @@ import streamlit as st
 import geopandas as gpd
 import pandas as pd
 import leafmap.foliumap as leafmap
-from shapely.geometry import shape
-from shapely.ops import unary_union
 import tempfile
 import os
-import json
-from io import BytesIO
 
 st.set_page_config(layout="wide")
-st.title("🗺️ Spatial Editor: Attributes + Geometry (Draw/Delete/Merge/Save)")
+st.title("🗺️ Spatial File Viewer & Editor")
 
-st.markdown("Upload up to **three spatial files** to view, edit attributes, and draw/delete/merge geometries.")
+st.markdown("Upload up to **three spatial files** to view and edit their attributes or geometries.")
 
 uploaded_files = [
     st.file_uploader("Upload File 1", type=["geojson", "shp", "zip", "csv"], key="file1"),
@@ -21,7 +17,7 @@ uploaded_files = [
     st.file_uploader("Upload File 3", type=["geojson", "shp", "zip", "csv"], key="file3")
 ]
 
-map_ = leafmap.Map(center=[20, 0], zoom=2, draw_control=True)
+map_ = leafmap.Map(center=[20, 0], zoom=2, draw_control=False)
 
 gdfs = []
 
@@ -31,7 +27,7 @@ for i, uploaded_file in enumerate(uploaded_files):
         st.subheader(f"File {i+1}: {uploaded_file.name}")
 
         try:
-            if file_ext == 'geojson':
+            if file_ext in ['geojson']:
                 gdf = gpd.read_file(uploaded_file)
             elif file_ext == 'csv':
                 df = pd.read_csv(uploaded_file)
@@ -41,6 +37,7 @@ for i, uploaded_file in enumerate(uploaded_files):
                     st.error("CSV must contain 'latitude' and 'longitude' columns.")
                     continue
             elif file_ext in ['shp', 'zip']:
+                # Save to temp file for reading
                 with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_ext}") as tmp:
                     tmp.write(uploaded_file.getvalue())
                     tmp_path = tmp.name
@@ -52,48 +49,13 @@ for i, uploaded_file in enumerate(uploaded_files):
             gdfs.append((f"Layer {i+1}", gdf))
             map_.add_gdf(gdf, layer_name=f"Layer {i+1}")
 
+            # Show editable table
             st.markdown(f"**Edit attributes (Layer {i+1})**")
-            st.data_editor(gdf.drop(columns='geometry'), use_container_width=True, num_rows="dynamic")
+            edited_df = st.data_editor(gdf.drop(columns='geometry'), use_container_width=True, num_rows="dynamic")
+            # For full editing, syncing changes back to the GeoDataFrame would be needed manually
 
         except Exception as e:
             st.error(f"Error loading file {uploaded_file.name}: {e}")
 
-st.subheader("✏️ Geometry Editing")
-
-drawn_features = map_.draw_features
-drawn_gdf = None
-
-if drawn_features:
-    try:
-        geojson_obj = {
-            "type": "FeatureCollection",
-            "features": drawn_features["features"]
-        }
-        drawn_gdf = gpd.GeoDataFrame.from_features(geojson_obj, crs="EPSG:4326")
-        st.success(f"{len(drawn_gdf)} feature(s) drawn.")
-
-        st.map(drawn_gdf)
-
-        if st.button("🗑️ Delete All Drawn Features"):
-            drawn_gdf = None
-            st.warning("All drawn features deleted. Please refresh the app to reset.")
-
-        if st.button("🔀 Merge Drawn Features"):
-            if drawn_gdf is not None and not drawn_gdf.empty:
-                merged_geom = unary_union(drawn_gdf.geometry)
-                merged_gdf = gpd.GeoDataFrame(geometry=[merged_geom], crs="EPSG:4326")
-                st.map(merged_gdf)
-                st.download_button("Download Merged Geometry as GeoJSON",
-                                   merged_gdf.to_json(), file_name="merged_feature.geojson", mime="application/geo+json")
-            else:
-                st.warning("No features available to merge.")
-
-        if drawn_gdf is not None:
-            st.download_button("💾 Download Drawn Features", drawn_gdf.to_json(),
-                               file_name="edited_features.geojson", mime="application/geo+json")
-
-    except Exception as e:
-        st.error(f"Failed to process drawn features: {e}")
-
-st.subheader("🗺️ Final Map Preview")
+st.subheader("🗺️ Map Preview")
 map_.to_streamlit(height=600)
