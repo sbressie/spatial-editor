@@ -1,0 +1,7 @@
+
+streamlit
+geopandas
+pandas
+leafmap
+pyogrio
+fiona
